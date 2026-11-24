@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aiops/telemetry-event-1.0.schema.json",
+  "title": "AIOps synthetic telemetry event",
+  "description": "Common event envelope for synthetic log, metric, and trace records.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {"signal_type": {"const": "log"}},
+      "required": ["message", "severity"],
+      "$ref": "#/$defs/common"
+    },
+    {
+      "type": "object",
+      "properties": {"signal_type": {"const": "metric"}},
+      "required": ["metric_name", "metric_value"],
+      "$ref": "#/$defs/common"
+    },
+    {
+      "type": "object",
+      "properties": {"signal_type": {"const": "trace"}},
+      "required": ["span_id", "parent_span_id", "duration_ms", "status"],
+      "$ref": "#/$defs/common"
+    }
+  ],
+  "$defs": {
+    "common": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "event_id": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "signal_type": {"enum": ["log", "metric", "trace"]},
+        "service_name": {"enum": ["gateway", "orders", "inventory"]},
+        "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "scenario_id": {"enum": ["baseline", "latency", "http_5xx", "timeout_retry", "dependency_failure"]},
+        "attributes": {"type": "object"},
+        "message": {"type": "string"},
+        "severity": {"enum": ["INFO", "ERROR"]},
+        "metric_name": {"type": "string"},
+        "metric_value": {"type": "number", "minimum": 0},
+        "span_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "parent_span_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{16}$"},
+        "duration_ms": {"type": "number", "minimum": 0},
+        "status": {"enum": ["OK", "ERROR"]}
+      },
+      "required": ["schema_version", "event_id", "run_id", "timestamp", "signal_type", "service_name", "trace_id", "scenario_id", "attributes"],
+      "additionalProperties": false
+    }
+  }
+}
