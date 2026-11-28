@@ -1,0 +1,61 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: deployment.environment.name
+        value: local
+        action: upsert
+  batch:
+    timeout: 1s
+
+exporters:
+  debug:
+    verbosity: detailed
+  kafka:
+    brokers: [broker:19092]
+    logs:
+      topic: aiops.otlp.logs.v1
+      encoding: otlp_proto
+    metrics:
+      topic: aiops.otlp.metrics.v1
+      encoding: otlp_proto
+    traces:
+      topic: aiops.otlp.traces.v1
+      encoding: otlp_proto
+    partition_logs_by_trace_id: true
+    partition_metrics_by_resource_attributes: true
+    partition_traces_by_id: true
+    producer:
+      allow_auto_topic_creation: false
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug, kafka]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug, kafka]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug, kafka]

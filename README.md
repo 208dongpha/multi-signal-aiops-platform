@@ -2,6 +2,8 @@
 
 An end-to-end observability and AIOps platform that ingests logs, metrics, and distributed traces from a microservices system, detects abnormal behavior in streaming data, correlates related signals, and helps engineers investigate incidents with traceable evidence.
 
+> **Project status:** Phase 2 Kafka transport is implemented for the scoped Collector-to-Kafka slice. Unit/config checks and local Kafka produce/read-back smoke have passed; Architect review and Project Owner acceptance are pending. Phase 3 and later are not implemented.
+
 ## Why this project?
 
 Modern microservices generate large volumes of telemetry across many services. During an incident, engineers often need to move between dashboards, logs, and traces to understand what changed and where to investigate. This project explores a unified pipeline that turns telemetry into actionable, evidence-backed incident views.
@@ -52,7 +54,7 @@ This is a target architecture; not every component is part of the local demo. Co
 |---|---|---|
 | Telemetry instrumentation | OpenTelemetry SDK | Emit correlated logs, metrics, and traces |
 | Collection and transformation | OpenTelemetry Collector | Receive, filter, normalize, and enrich telemetry |
-| Event transport | Kafka **or** Redpanda | Buffer and distribute telemetry events |
+| Event transport | Apache Kafka 4.1.2 (Phase 2 local profile) | Buffer and distribute OTLP telemetry events |
 | Stream processing | Apache Flink | Event-time windows, late events, enrichment, and correlation |
 | Historical lake | MinIO/S3 + Apache Iceberg | Durable raw/curated data, replay, and analysis |
 | Log and event search | OpenSearch | Search and investigate log/event records |
@@ -86,6 +88,31 @@ docker compose -f collector/compose.yaml down
 ```
 
 Use Python 3.10 or newer for the pinned OpenTelemetry dependencies. The direct SDK dependencies are pinned in `requirements.txt`. Scenario and local timing values are in `demo/workload.py` and `demo/config.json`; the event envelope is described in `demo/telemetry.schema.json`. Metric dimensions are bounded scenario/method/status values; run and trace IDs are not metric attributes. All payloads are synthetic.
+
+### Optional Phase 2 Kafka transport
+
+The opt-in `streaming` profile sends the Phase 1 OpenTelemetry logs, metrics, and traces from the Collector Contrib exporter to Apache Kafka. It does not change or publish the Phase 0 compatibility JSONL. Kafka and Collector host ports bind to loopback. The topics are `aiops.otlp.logs.v1`, `aiops.otlp.metrics.v1`, and `aiops.otlp.traces.v1`; payloads use OTLP Protobuf. Each topic uses one partition, replication factor one, and seven-day retention. See [`docs/PHASE_2_REPORT.md`](docs/PHASE_2_REPORT.md) for exact configuration, verification evidence, and limitations.
+
+```powershell
+uv venv .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+$compose = @("compose", "--profile", "streaming", "-f", "collector/streaming.compose.yaml")
+docker @compose up -d kafka
+docker @compose exec kafka /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic aiops.otlp.logs.v1 --partitions 1 --replication-factor 1 --config retention.ms=604800000 --bootstrap-server broker:19092
+docker @compose exec kafka /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic aiops.otlp.metrics.v1 --partitions 1 --replication-factor 1 --config retention.ms=604800000 --bootstrap-server broker:19092
+docker @compose exec kafka /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic aiops.otlp.traces.v1 --partitions 1 --replication-factor 1 --config retention.ms=604800000 --bootstrap-server broker:19092
+docker @compose up -d otel-collector
+.\.venv\Scripts\python.exe -m demo.workload --scenario baseline
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+foreach ($signal in @("logs", "metrics", "traces")) {
+    docker @compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server broker:19092 --topic "aiops.otlp.$signal.v1" --from-beginning --max-messages 1 --timeout-ms 15000
+}
+docker @compose stop
+```
+
+Retries use bounded backoff and an in-memory queue; prolonged outages or a full queue can result in dropped data, and retries can create duplicates. This single-broker local profile is not highly available. Consumers must be idempotent. Kafka receives the OTel signals, not the compatibility JSONL.
+
+A read-only MCP adapter is a future optional direction after Phase 6 incident/timeline/evidence queries exist. It is not implemented and must not expose mutations or operational actions.
 
 ## Detection and incident investigation
 
